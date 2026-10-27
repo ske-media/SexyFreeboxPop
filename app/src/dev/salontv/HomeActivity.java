@@ -20,17 +20,24 @@ public final class HomeActivity extends Activity {
     private static final String YOUTUBE = "com.google.android.youtube.tv";
     private static final String AIRPLAY = "io.github.jqssun.airplay";
     private static final String ORIGINAL = "net.oqee.launcher";
-    private final int WHITE = Color.rgb(245,246,248), MUTED = Color.rgb(149,155,166);
+    private final int WHITE = Color.WHITE, MUTED = Color.rgb(225,225,233);
     private FrameLayout root;
     private float scale = 1;
     private String page = "home";
     private int savedFocus = 0, nextFocus = 0, appPage = 0;
-    private TextView clock;
+    private TextView clock,dateLabel,appHint,countdown;
+    private FrameLayout dock;
+    private View forecast;
+    private boolean dockVisible;
+    private Bitmap wallpaper;
+    private WeatherRepository weather;
+    private WeatherRepository.Data weatherData;
+    private WeatherView weatherNow,weatherWeek;
     private final ArrayList<View> controls = new ArrayList<>();
     private final ArrayList<AppEntry> apps = new ArrayList<>();
     private boolean receiverRegistered;
     private final BroadcastReceiver minute = new BroadcastReceiver() {
-        @Override public void onReceive(Context context, Intent intent) { updateClock(); }
+        @Override public void onReceive(Context context, Intent intent) { updateClock(); refreshWeather(); }
     };
 
     @Override public void onCreate(Bundle state) {
@@ -40,25 +47,46 @@ public final class HomeActivity extends Activity {
         Point display = new Point(); getWindowManager().getDefaultDisplay().getRealSize(display);
         scale = Math.min(display.x / 1920f, display.y / 1080f);
         if (state != null) { savedFocus = state.getInt("focus",0); appPage = state.getInt("appPage",0); }
+        int image=getResources().getIdentifier("wallpaper","drawable",getPackageName());
+        wallpaper=BitmapFactory.decodeResource(getResources(),image);
+        weather=new WeatherRepository(this);weatherData=weather.cached();
         showHome();
     }
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent); savedFocus=0;
-        if(page.equals("home") && root!=null && !controls.isEmpty()) { updateClock(); controls.get(0).requestFocus(); }
+        if(page.equals("home") && root!=null) { updateClock(); revealDock(false); }
         else showHome();
     }
     @Override protected void onResume() {
-        super.onResume(); updateClock();
-        if (!receiverRegistered) { registerReceiver(minute,new IntentFilter(Intent.ACTION_TIME_TICK)); receiverRegistered=true; }
+        super.onResume(); updateClock(); refreshWeather();
+        if (!receiverRegistered) { IntentFilter filter=new IntentFilter(Intent.ACTION_TIME_TICK);filter.addAction(Intent.ACTION_DATE_CHANGED);filter.addAction(Intent.ACTION_TIME_CHANGED);filter.addAction(Intent.ACTION_TIMEZONE_CHANGED);registerReceiver(minute,filter); receiverRegistered=true; }
     }
     @Override protected void onPause() {
         super.onPause(); if (receiverRegistered) { unregisterReceiver(minute); receiverRegistered=false; }
+    }
+    @Override protected void onDestroy(){if(weather!=null)weather.close();super.onDestroy();}
+    private void refreshWeather(){
+        if(weather==null)return;
+        weather.refresh(data->runOnUiThread(()->{
+            if(isDestroyed())return;weatherData=data;
+            if(weatherNow!=null)weatherNow.invalidate();if(weatherWeek!=null)weatherWeek.invalidate();
+        }));
+    }
+    @Override public boolean dispatchKeyEvent(KeyEvent event){
+        if(page.equals("home") && event.getAction()==KeyEvent.ACTION_DOWN){
+            int key=event.getKeyCode();
+            if(!dockVisible && (key==KeyEvent.KEYCODE_DPAD_DOWN||key==KeyEvent.KEYCODE_DPAD_CENTER||key==KeyEvent.KEYCODE_ENTER)){
+                revealDock(true);return true;
+            }
+            if(dockVisible && key==KeyEvent.KEYCODE_DPAD_UP){revealDock(false);return true;}
+        }
+        return super.dispatchKeyEvent(event);
     }
     @Override protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state); state.putInt("focus",savedFocus); state.putInt("appPage",appPage);
     }
     @Override public void onBackPressed() {
-        if (!page.equals("home")) showHome(); else if (!controls.isEmpty()) controls.get(0).requestFocus();
+        if (!page.equals("home")) showHome(); else if(dockVisible)revealDock(false);
     }
     private int px(float n) { return Math.round(n*scale); }
     private void place(View v,float x,float y,float w,float h) {
@@ -67,7 +95,8 @@ public final class HomeActivity extends Activity {
     private TextView text(String value,float size,int color,boolean bold) {
         TextView t=new TextView(this);t.setText(value);t.setTextColor(color);
         t.setTextSize(TypedValue.COMPLEX_UNIT_PX,px(size));t.setFontFeatureSettings("kern");
-        t.setTypeface(Typeface.create(bold?"sans-serif-medium":"sans-serif",Typeface.NORMAL));
+        t.setTypeface(Typeface.create("sans-serif-medium",bold?Typeface.BOLD:Typeface.NORMAL));
+        t.setShadowLayer(px(8),0,px(2),0xa0000000);
         t.setIncludeFontPadding(false);t.setGravity(Gravity.CENTER_VERTICAL);return t;
     }
     private void label(String value,float x,float y,float w,float h,float size,int color,boolean bold) {
@@ -76,44 +105,69 @@ public final class HomeActivity extends Activity {
     private void base(String name) {
         page=name; controls.clear();nextFocus=0;
         root=new FrameLayout(this);root.setClipChildren(false);root.setClipToPadding(false);root.setBackground(new Backdrop());setContentView(root);
+        weatherNow=null;weatherWeek=null;dateLabel=null;countdown=null;
         label("salon",112,80,250,60,42,WHITE,true);
         clock=text("",34,WHITE,false);clock.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);place(clock,1490,91,318,42);updateClock();
         String day=new SimpleDateFormat("EEEE d MMMM",Locale.FRANCE).format(new Date());
-        TextView date=text(day,20,MUTED,false);date.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);place(date,1400,141,408,32);
+        dateLabel=text(day,20,MUTED,false);dateLabel.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);place(dateLabel,1400,141,408,32);
     }
-    private void updateClock() { if(clock!=null) clock.setText(new SimpleDateFormat("HH:mm",Locale.FRANCE).format(new Date())); }
+    private String localTime(String pattern){SimpleDateFormat f=new SimpleDateFormat(pattern,Locale.FRANCE);f.setTimeZone(WeatherRepository.PARIS);return f.format(new Date());}
+    private void updateClock() {
+        if(clock!=null)clock.setText(localTime("HH:mm"));
+        if(dateLabel!=null)dateLabel.setText(localTime("EEEE d MMMM"));
+        if(countdown!=null)countdown.setText(IaraCountdown.today());
+        if(weatherNow!=null)weatherNow.invalidate();if(weatherWeek!=null)weatherWeek.invalidate();
+    }
     private void showHome() {
-        base("home");
-        Calendar now=Calendar.getInstance();int h=now.get(Calendar.HOUR_OF_DAY);
-        label(h>=18||h<5?"Bonsoir.":"Bonjour.",112,227,1500,113,94,WHITE,true);
-        label("Installez-vous. Tout est ici.",116,362,1400,50,32,MUTED,false);
-        String[] title={"Free TV","Netflix","YouTube","AirPlay"};
-        String[] sub={"Le direct et le replay","Films et séries","À voir et à découvrir","Votre écran, en grand"};
+        page="home";controls.clear();nextFocus=0;dockVisible=false;
+        root=new FrameLayout(this);root.setClipChildren(false);root.setClipToPadding(false);root.setBackground(new Backdrop());
+        root.setFocusable(true);root.setFocusableInTouchMode(true);
+        root.setContentDescription("Accueil. Appuyez sur Bas pour afficher les applications.");setContentView(root);
+        dateLabel=text("",38,WHITE,true);place(dateLabel,112,80,1050,54);
+        weatherNow=new WeatherView(false);place(weatherNow,112,151,760,150);
+        clock=text("",252,WHITE,false);clock.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));clock.setGravity(Gravity.CENTER);
+        clock.setFontFeatureSettings("tnum");clock.setShadowLayer(px(22),0,px(5),0x99000000);place(clock,360,390,1200,294);
+        TextView occasion=text("Naissance Iara",31,WHITE,true);occasion.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);place(occasion,1330,80,478,54);
+        countdown=text("",66,WHITE,true);countdown.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);place(countdown,1330,145,478,90);
+        TextView target=text("30 janvier 2027",24,WHITE,false);target.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);place(target,1330,244,478,36);updateClock();
+        weatherWeek=new WeatherView(true);forecast=weatherWeek;place(forecast,330,765,1260,190);
+        appHint=text("⌄   Applications",27,WHITE,true);appHint.setGravity(Gravity.CENTER);place(appHint,660,1000,600,44);
+        dock=new FrameLayout(this);dock.setClipChildren(false);dock.setClipToPadding(false);place(dock,236,812,1448,205);
+        String[] names={"TV","Netflix","YouTube","Mirroir","Toutes les apps","Réglages"};
         String[] packages={FREE,NETFLIX,YOUTUBE,AIRPLAY};
-        for(int i=0;i<4;i++) {
-            final String pkg=packages[i];final int index=i;
-            FrameLayout tile=tile(112+i*430,506,406,232,()->{savedFocus=index;if(pkg.equals(AIRPLAY))showAirPlay();else launch(pkg);});
-            Brand brand=new Brand(i);FrameLayout.LayoutParams bp=new FrameLayout.LayoutParams(px(300),px(130));bp.gravity=Gravity.CENTER;tile.addView(brand,bp);
-            tile.setContentDescription(title[i]+". "+sub[i]);
-            label(title[i],120+i*430,767,398,39,28,WHITE,true);
-            label(sub[i],120+i*430,817,398,34,22,MUTED,false);
+        for(int i=0;i<6;i++){
+            final int index=i;float x=i<4?i*250:1000+(i-4)*224;float w=i<4?226:200;
+            FrameLayout tile=control(x,0,w,132,false,()->{
+                savedFocus=index;
+                if(index==3)showAirPlay();else if(index==4)showApps(0);else if(index==5)showSettings();else launch(packages[index]);
+            });
+            root.removeView(tile);dock.addView(tile);
+            if(i<4){Brand brand=new Brand(i);FrameLayout.LayoutParams bp=new FrameLayout.LayoutParams(px(178),px(92));bp.gravity=Gravity.CENTER;tile.addView(brand,bp);}
+            else {TextView icon=text(i==4?"⊞":"⚙",58,WHITE,false);icon.setGravity(Gravity.CENTER);tile.addView(icon,new FrameLayout.LayoutParams(-1,-1));}
+            tile.setContentDescription(names[i]);
+            TextView name=text(names[i],25,WHITE,true);name.setGravity(Gravity.CENTER);
+            FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(px(w),px(40));lp.leftMargin=px(x);lp.topMargin=px(150);dock.addView(name,lp);
         }
-        pill("Toutes les apps",112,919,290,()->showApps(0));
-        pill("Réglages",426,919,213,()->showSettings());
-        TextView hint=text("Un instant pour vous.",20,Color.rgb(100,108,120),false);hint.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);place(hint,1390,935,418,32);
-        // Explicit focus paths keep the four main services in one predictable row.
-        for(int i=0;i<4;i++) {
-            View v=controls.get(i);v.setNextFocusLeftId(controls.get(Math.max(0,i-1)).getId());v.setNextFocusRightId(controls.get(Math.min(3,i+1)).getId());
-            v.setNextFocusDownId(controls.get(i<2?4:5).getId());v.setNextFocusUpId(v.getId());
+        for(int i=0;i<6;i++){
+            View v=controls.get(i);v.setNextFocusLeftId(controls.get(Math.max(0,i-1)).getId());v.setNextFocusRightId(controls.get(Math.min(5,i+1)).getId());v.setNextFocusDownId(v.getId());
         }
-        for(int i=4;i<6;i++){controls.get(i).setNextFocusUpId(controls.get(i==4?0:3).getId());controls.get(i).setNextFocusDownId(controls.get(i).getId());}
-        controls.get(4).setNextFocusLeftId(controls.get(4).getId());controls.get(4).setNextFocusRightId(controls.get(5).getId());
-        controls.get(5).setNextFocusLeftId(controls.get(4).getId());controls.get(5).setNextFocusRightId(controls.get(5).getId());
-        controls.get(Math.min(savedFocus,3)).requestFocus();
+        dock.setVisibility(View.INVISIBLE);dock.setDescendantFocusability(android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+        dock.setTranslationY(px(250));dock.setAlpha(0);root.requestFocus();
+    }
+    private void revealDock(boolean visible){
+        if(dock==null || !page.equals("home"))return;
+        dockVisible=visible;
+        dock.animate().cancel();clock.animate().cancel();forecast.animate().cancel();appHint.animate().cancel();
+        dock.setVisibility(View.VISIBLE);dock.setDescendantFocusability(visible?android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS:android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+        dock.animate().translationY(visible?0:px(250)).alpha(visible?1:0).setDuration(240).withEndAction(()->{if(!dockVisible)dock.setVisibility(View.INVISIBLE);}).start();
+        clock.animate().translationY(visible?-px(198):0).scaleX(visible?.79f:1).scaleY(visible?.79f:1).setDuration(240).start();
+        forecast.animate().translationY(visible?-px(205):0).setDuration(240).start();
+        appHint.animate().alpha(visible?0:1).setDuration(160).start();
+        if(visible)controls.get(Math.min(savedFocus,5)).requestFocus();else root.requestFocus();
     }
     private GradientDrawable surface(boolean focus,boolean pill) {
         GradientDrawable d=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-            focus?new int[]{0xff343e4d,0xff232a35}:new int[]{0xff1d232d,0xff171c24});
+            focus?new int[]{0xc0736570,0xc0393543}:new int[]{0x903a2e3d,0xa0252230});
         d.setCornerRadius(px(pill?34:27));d.setStroke(px(focus?2.5f:1),focus?0xffe3e9f2:0xff303744);return d;
     }
     private FrameLayout tile(float x,float y,float w,float h,Runnable action) { return control(x,y,w,h,false,action); }
@@ -136,7 +190,8 @@ public final class HomeActivity extends Activity {
         for(ResolveInfo info:pm.queryIntentActivities(q,0)) {
             String pkg=info.activityInfo.packageName;
             if(pkg.equals(getPackageName())||pkg.equals(ORIGINAL)||!seen.add(pkg))continue;
-            apps.add(new AppEntry(info.loadLabel(pm).toString(),pkg,info.loadIcon(pm)));
+            String title=pkg.equals(FREE)?"TV":pkg.equals(AIRPLAY)?"Mirroir":info.loadLabel(pm).toString();
+            apps.add(new AppEntry(title,pkg,info.loadIcon(pm)));
         }
         Collections.sort(apps,(a,b)->a.title.compareToIgnoreCase(b.title));
     }
@@ -167,7 +222,7 @@ public final class HomeActivity extends Activity {
         FrameLayout card=new FrameLayout(this);card.setBackground(surface(false,false));place(card,112,463,1696,345);
         TextView instructions=text("1   Connectez votre iPhone ou Mac au même réseau.\n\n2   Ouvrez Recopie de l’écran dans le centre de contrôle.\n\n3   Choisissez « TV du salon ».",30,WHITE,false);
         FrameLayout.LayoutParams ip=new FrameLayout.LayoutParams(-1,-1);ip.setMargins(px(44),px(26),px(44),px(26));card.addView(instructions,ip);
-        pill("Ouvrir AirPlay",112,864,280,()->launch(AIRPLAY));
+        pill("Ouvrir Mirroir",112,864,280,()->launch(AIRPLAY));
         pill("Retour",420,864,180,()->showHome());
         label("La disponibilité dépend du récepteur et du contenu partagé.",116,975,1500,34,21,MUTED,false);
         controls.get(0).requestFocus();
@@ -175,7 +230,7 @@ public final class HomeActivity extends Activity {
     private void showSettings() {
         base("settings");label("À votre façon.",112,230,1500,106,76,WHITE,true);
         label("Les essentiels, simplement.",116,357,1500,52,31,MUTED,false);
-        String[] titles={"Réglages du Player","Play Store","Récepteur AirPlay","Réseau et connexion"};
+        String[] titles={"Réglages du Player","Play Store","Mirroir","Réseau et connexion"};
         Runnable[] actions={()->{try{startActivity(new Intent(Settings.ACTION_SETTINGS));}catch(Exception e){message("Réglages indisponibles");}},()->launch("com.android.vending"),()->launch(AIRPLAY),()->{try{startActivity(new Intent(Settings.ACTION_WIFI_SETTINGS));}catch(Exception e){message("Réglages indisponibles");}}};
         for(int i=0;i<4;i++) {
             FrameLayout f=tile(112+(i%2)*860,465+(i/2)*150,836,118,actions[i]);
@@ -194,13 +249,91 @@ public final class HomeActivity extends Activity {
         final String title,pkg;final Drawable icon;
         AppEntry(String t,String p,Drawable d){title=t;pkg=p;icon=d;}
     }
+    private class WeatherView extends View {
+        private final boolean week;
+        private final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
+        WeatherView(boolean weekly){super(HomeActivity.this);week=weekly;setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);setContentDescription(weekly?"Prévisions météo sur sept jours pour Valleiry":"Météo actuelle à Valleiry");}
+        private void word(Canvas c,String value,float x,float y,float size,int color,Paint.Align align,boolean medium){
+            p.setStyle(Paint.Style.FILL);p.setShader(null);p.setColor(color);p.setTextSize(size);p.setTextAlign(align);
+            p.setTypeface(Typeface.create("sans-serif-medium",medium?Typeface.BOLD:Typeface.NORMAL));
+            p.setShadowLayer(3,0,1,0x99000000);
+            c.drawText(value,x,y,p);
+            p.clearShadowLayer();
+        }
+        @Override protected void onDraw(Canvas original){
+            original.save();original.scale(getWidth()/(week?1260f:760f),getHeight()/(week?190f:150f));Canvas c=original;
+            WeatherRepository.Data data=weatherData;
+            if(!week){
+                word(c,"VALLEIRY · 74",0,23,23,WHITE,Paint.Align.LEFT,true);
+                glyph(c,data==null?-1:data.code,data==null||data.daylight,33,82,56);
+                word(c,data==null?"—°":Math.round(data.temperature)+"°",82,110,66,WHITE,Paint.Align.LEFT,true);
+                String description=data==null?"Météo indisponible":WeatherRepository.description(data.code,data.daylight);
+                word(c,description,260,82,29,WHITE,Paint.Align.LEFT,true);
+                String detail="Prévisions locales";
+                if(data!=null){
+                    boolean old=System.currentTimeMillis()-data.fetchedAt>2*60*60*1000L;
+                    SimpleDateFormat f=new SimpleDateFormat(old?"dd/MM à HH:mm":"HH:mm",Locale.FRANCE);f.setTimeZone(WeatherRepository.PARIS);
+                    detail=(old?"Dernières données · ":"Actualisé à ")+f.format(new Date(data.fetchedAt));
+                }
+                word(c,detail,261,119,22,WHITE,Paint.Align.LEFT,false);
+            } else {
+                p.setColor(0x951b1724);p.setStyle(Paint.Style.FILL);c.drawRoundRect(0,0,1260,190,27,27,p);
+                p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(1);p.setColor(0x30ffffff);c.drawRoundRect(0.5f,0.5f,1259.5f,189.5f,27,27,p);p.setStyle(Paint.Style.FILL);
+                ArrayList<WeatherRepository.Day> available=new ArrayList<>();
+                if(data!=null)for(WeatherRepository.Day day:data.days)if(day.date.compareTo(WeatherRepository.today())>=0)available.add(day);
+                Calendar date=Calendar.getInstance(WeatherRepository.PARIS,Locale.FRANCE);
+                SimpleDateFormat dayName=new SimpleDateFormat("EEE",Locale.FRANCE);dayName.setTimeZone(WeatherRepository.PARIS);
+                for(int i=0;i<7;i++){
+                    WeatherRepository.Day d=i<available.size()?available.get(i):null;
+                    String name=i==0?"Aujourd’hui":dayName.format(date.getTime()).replace(".","");
+                    float x=90+i*180;
+                    word(c,name,x,35,23,WHITE,Paint.Align.CENTER,true);
+                    glyph(c,d==null?-1:d.code,true,x,79,39);
+                    word(c,d==null?"—":Math.round(d.high)+"°",x-6,143,30,WHITE,Paint.Align.RIGHT,true);
+                    word(c,d==null?"—":Math.round(d.low)+"°",x+7,143,28,0xffe9e3ee,Paint.Align.LEFT,false);
+                    date.add(Calendar.DAY_OF_MONTH,1);
+                }
+                word(c,"Open-Meteo",1234,179,15,0xffe5dfe6,Paint.Align.RIGHT,false);
+            }
+            original.restore();
+        }
+        private void glyph(Canvas c,int code,boolean day,float x,float y,float size){
+            c.save();c.translate(x-size/2,y-size/2);c.scale(size/64,size/64);
+            p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(2.6f);p.setStrokeCap(Paint.Cap.ROUND);p.setStrokeJoin(Paint.Join.ROUND);p.setColor(0xfff7eee5);
+            if(code<0){c.drawLine(21,32,43,32,p);c.restore();return;}
+            boolean sunny=code<=2;
+            if(sunny){
+                if(!day && code==0){
+                    Path moon=new Path();moon.addCircle(32,29,17,Path.Direction.CW);Path cut=new Path();cut.addCircle(40,21,17,Path.Direction.CW);moon.op(cut,Path.Op.DIFFERENCE);p.setStyle(Paint.Style.FILL);c.drawPath(moon,p);p.setStyle(Paint.Style.STROKE);
+                }else{
+                    float sx=code==0?32:23,sy=code==0?30:23,r=code==0?12:9;
+                    c.drawCircle(sx,sy,r,p);
+                    for(int i=0;i<8;i++){double a=i*Math.PI/4;c.drawLine(sx+(float)Math.cos(a)*(r+5),sy+(float)Math.sin(a)*(r+5),sx+(float)Math.cos(a)*(r+10),sy+(float)Math.sin(a)*(r+10),p);}
+                }
+                if(code==0){c.restore();return;}
+            }
+            Path cloud=new Path();cloud.moveTo(15,44);cloud.cubicTo(2,43,6,25,18,28);cloud.cubicTo(20,10,46,13,47,29);cloud.cubicTo(62,25,65,43,52,44);cloud.close();
+            if(sunny){p.setStyle(Paint.Style.FILL);p.setColor(0xffd9cbd4);c.drawPath(cloud,p);p.setColor(0xfff7eee5);p.setStyle(Paint.Style.STROKE);}
+            c.drawPath(cloud,p);
+            if(code==45||code==48){c.drawLine(12,51,53,51,p);c.drawLine(18,58,46,58,p);}
+            else if((code>=71&&code<=77)||code==85||code==86){for(int i=0;i<3;i++){float sx=19+i*14;c.drawLine(sx,49,sx,59,p);c.drawLine(sx-4,51,sx+4,57,p);c.drawLine(sx-4,57,sx+4,51,p);}}
+            else if(code>=95){Path bolt=new Path();bolt.moveTo(33,44);bolt.lineTo(26,54);bolt.lineTo(34,54);bolt.lineTo(29,63);c.drawPath(bolt,p);}
+            else if(code>=51){for(int i=0;i<3;i++)c.drawLine(20+i*14,49,16+i*14,57,p);}
+            c.restore();
+        }
+    }
     private class Backdrop extends Drawable {
         private final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
         @Override public void draw(Canvas c) {
-            c.drawColor(0xff090c12);
-            p.setShader(new RadialGradient(px(1290),px(120),px(1250),new int[]{0xff202c40,0xff111823,0xff090c12},new float[]{0,.49f,1},Shader.TileMode.CLAMP));
+            c.drawColor(0xff191420);
+            if(wallpaper!=null){
+                float factor=Math.max(getBounds().width()/(float)wallpaper.getWidth(),getBounds().height()/(float)wallpaper.getHeight());
+                float width=wallpaper.getWidth()*factor,height=wallpaper.getHeight()*factor;
+                p.setFilterBitmap(true);c.drawBitmap(wallpaper,null,new RectF((getBounds().width()-width)/2,(getBounds().height()-height)/2,(getBounds().width()+width)/2,(getBounds().height()+height)/2),p);
+            }
+            p.setShader(new LinearGradient(0,0,0,getBounds().height(),new int[]{0x90090b13,0x20090b13,0x30090b13,0xc0090b13},new float[]{0,.40f,.60f,1},Shader.TileMode.CLAMP));
             c.drawRect(getBounds(),p);p.setShader(null);
-            p.setColor(0xff28303d);p.setStrokeWidth(px(1));c.drawLine(px(112),px(190),px(1808),px(190),p);
+            if(!page.equals("home")){p.setColor(0xb5090c15);c.drawRect(getBounds(),p);}
         }
         @Override public void setAlpha(int a){} @Override public void setColorFilter(ColorFilter f){} @Override public int getOpacity(){return PixelFormat.OPAQUE;}
     }
@@ -210,10 +343,10 @@ public final class HomeActivity extends Activity {
         @Override protected void onDraw(Canvas raw) {
             raw.save();raw.scale(getWidth()/300f,getHeight()/130f);Canvas c=raw;
             p.setStyle(Paint.Style.FILL);p.setTextAlign(Paint.Align.CENTER);p.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));
-            if(brand==0){p.setColor(0xfffafafa);p.setTextSize(56);p.setTypeface(Typeface.create("sans-serif",Typeface.ITALIC));c.drawText("free",118,84,p);p.setTypeface(Typeface.create("sans-serif-light",Typeface.NORMAL));p.setTextSize(48);c.drawText("TV",222,84,p);}
+            if(brand==0){p.setColor(0xfffafafa);p.setTypeface(Typeface.create("sans-serif-light",Typeface.NORMAL));p.setTextSize(67);c.drawText("TV",150,89,p);}
             else if(brand==1){p.setColor(0xffe50914);p.setTextSize(47);p.setTypeface(Typeface.create("sans-serif-condensed",Typeface.BOLD));c.drawText("NETFLIX",150,84,p);}
             else if(brand==2){p.setColor(0xffff0033);c.drawRoundRect(35,36,121,96,17,17,p);p.setColor(Color.WHITE);Path play=new Path();play.moveTo(69,51);play.lineTo(69,81);play.lineTo(94,66);play.close();c.drawPath(play,p);p.setTextSize(36);p.setTypeface(Typeface.create("sans-serif",Typeface.BOLD));c.drawText("YouTube",208,80,p);}
-            else {p.setColor(0xfff4f6fa);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(3.5f);c.drawRoundRect(115,24,185,71,5,5,p);p.setStyle(Paint.Style.FILL);Path tri=new Path();tri.moveTo(150,57);tri.lineTo(130,82);tri.lineTo(170,82);tri.close();c.drawPath(tri,p);p.setTextSize(23);p.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));c.drawText("AirPlay",150,113,p);}
+            else {p.setColor(0xfff4f6fa);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(3.5f);c.drawRoundRect(115,24,185,71,5,5,p);p.setStyle(Paint.Style.FILL);Path tri=new Path();tri.moveTo(150,57);tri.lineTo(130,82);tri.lineTo(170,82);tri.close();c.drawPath(tri,p);p.setTextSize(23);p.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));c.drawText("Mirroir",150,113,p);}
             raw.restore();
         }
     }

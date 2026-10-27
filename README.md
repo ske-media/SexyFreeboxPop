@@ -1,6 +1,6 @@
 # SexyFreeboxPop · Salon
 
-Accueil Android TV minimaliste pour Freebox Player Pop, avec accès aux applications existantes et à un récepteur AirPlay libre.
+Accueil Android TV minimaliste pour Freebox Player Pop : paysage plein écran, grande horloge, météo locale et applications à la télécommande.
 
 ![Accueil Salon sur le Player Pop](docs/salon-home.jpg)
 
@@ -8,12 +8,16 @@ Premier prototype natif Android, installé sur le Player Pop Android 10 (API 29,
 
 ## Utilisation
 
-- Le bouton Maison ouvre Salon. Flèches et OK sélectionnent les applications.
-- Free TV, Netflix et YouTube ouvrent les applications existantes, avec leurs comptes existants.
+- Le bouton Maison ouvre le paysage et la grande horloge centrale (heure de Paris).
+- « Naissance Iara » affiche le décompte en jours calendaires jusqu’au **30 janvier 2027** : J−95 le 27 octobre 2026, « Jour J » à la date prévue, puis J+… après cette date. Il se met à jour au changement de jour et au retour sur l’accueil.
+- La grande horloge et les textes utilisent des caractères renforcés, un blanc contrasté et des ombres discrètes pour rester lisibles sur le paysage.
+- La date et les conditions actuelles à Valleiry (Haute-Savoie) apparaissent en haut à gauche. Une rangée affiche les sept prochains jours, avec conditions et températures minimales et maximales.
+- Bas ou OK affiche le bandeau d’applications. Haut ou Retour le masque. Gauche, Droite et OK permettent de choisir une application.
+- TV, Netflix et YouTube ouvrent les applications existantes, avec leurs comptes existants.
 - Toutes les apps affiche les applications TV en pages de dix, dont le Play Store.
 - Réglages donne accès aux paramètres Android, au Play Store, à AirPlay et au réseau.
 - Retour revient à l’accueil depuis les pages de Salon. Dans les applications tierces, Maison revient à Salon.
-- AirPlay explique la connexion et ouvre le récepteur libre ; le nom réseau configuré est **TV du salon**.
+- Mirroir explique la connexion et ouvre le récepteur AirPlay libre ; le nom réseau configuré est **TV du salon**.
 
 ## Modifications du Player
 
@@ -33,7 +37,13 @@ Pour un autre appareil, passer son adresse en argument (`./restore-free.command 
 
 ## Construction
 
-L’accueil utilise uniquement les vues Android du système, sans moteur web, bibliothèque d’interface, permission Internet ni boucle d’animation permanente. L’horloge utilise l’événement système de changement de minute.
+L’accueil utilise uniquement les vues Android du système, sans moteur web, bibliothèque d’interface ni boucle d’animation permanente. L’horloge et le décompte utilisent les événements système de changement d’heure et de date. La photo est redimensionnée et chargée une seule fois par activité.
+
+## Météo
+
+La météo provient de [Open-Meteo](https://open-meteo.com/en/docs), pour les coordonnées de Valleiry (46.11106, 5.97037), avec le fuseau `Europe/Paris`. La température actuelle est une donnée météo modélisée, pas une mesure issue d’un capteur du Player.
+
+Une requête HTTPS en arrière-plan actualise les données toutes les 30 minutes lorsque l’accueil est actif, ou à son retour si le cache a expiré. Une actualisation est aussi demandée au changement de jour. Les réponses sont conservées localement, avec leur date de récupération. En cas de panne, l’accueil conserve les dernières données et affiche leur ancienneté ; sans cache, il indique que la météo est indisponible. Aucun appel réseau ne bloque l’affichage ou la navigation.
 
 Prérequis : Python 3, JDK 17, [Android SDK Command-Line Tools](https://developer.android.com/tools), Android Platform 29 et Build Tools 34.0.0.
 
