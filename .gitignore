@@ -1,0 +1,6 @@
+tools/
+build/
+output/
+*.keystore
+*.jks
+.DS_Store
