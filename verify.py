@@ -26,12 +26,15 @@ for name,moves,pkg in [('Free TV',0,'net.oqee.androidtv'),('Netflix',1,'com.netf
     keys(3)
     checks.append({'check':'HOME after '+name,'result':expect('dev.salontv')})
 home();keys(20,22,22,22,22,23)
+line=expect('dev.salontv');assert '.BrowserActivity' in line,line
+checks.append({'check':'Browser via remote','result':line})
+home();keys(20,22,22,22,22,22,23)
 checks.append({'check':'All apps via remote','result':expect('dev.salontv')})
 shell('uiautomator dump /sdcard/salon-ui.xml')
 xml=shell('cat /sdcard/salon-ui.xml')
 assert 'Vos applications' in xml and 'Retour' in xml
 subprocess.run(BASE+['exec-out','screencap','-p'],stdout=open(ROOT/'output/apps.png','wb'),check=True)
-keys(4);home();keys(20,22,22,22,22,22,23)
+keys(4);home();keys(20,22,22,22,22,22,22,23)
 shell('uiautomator dump /sdcard/salon-ui.xml')
 assert 'Réglages du Player' in shell('cat /sdcard/salon-ui.xml')
 keys(22,23)

@@ -132,24 +132,24 @@ public final class HomeActivity extends Activity {
         TextView target=text("30 janvier 2027",24,WHITE,false);target.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);place(target,1330,244,478,36);updateClock();
         weatherWeek=new WeatherView(true);forecast=weatherWeek;place(forecast,330,765,1260,190);
         appHint=text("⌄   Applications",27,WHITE,true);appHint.setGravity(Gravity.CENTER);place(appHint,660,1000,600,44);
-        dock=new FrameLayout(this);dock.setClipChildren(false);dock.setClipToPadding(false);place(dock,236,812,1448,205);
-        String[] names={"TV","Netflix","YouTube","Mirroir","Toutes les apps","Réglages"};
+        dock=new FrameLayout(this);dock.setClipChildren(false);dock.setClipToPadding(false);place(dock,136,812,1672,205);
+        String[] names={"TV","Netflix","YouTube","Mirroir","Navigateur","Toutes les apps","Réglages"};
         String[] packages={FREE,NETFLIX,YOUTUBE,AIRPLAY};
-        for(int i=0;i<6;i++){
+        for(int i=0;i<7;i++){
             final int index=i;float x=i<4?i*250:1000+(i-4)*224;float w=i<4?226:200;
             FrameLayout tile=control(x,0,w,132,false,()->{
                 savedFocus=index;
-                if(index==3)showAirPlay();else if(index==4)showApps(0);else if(index==5)showSettings();else launch(packages[index]);
+                if(index==3)showAirPlay();else if(index==4)startActivity(new Intent(this,BrowserActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));else if(index==5)showApps(0);else if(index==6)showSettings();else launch(packages[index]);
             });
             root.removeView(tile);dock.addView(tile);
-            if(i<4){Brand brand=new Brand(i);FrameLayout.LayoutParams bp=new FrameLayout.LayoutParams(px(178),px(92));bp.gravity=Gravity.CENTER;tile.addView(brand,bp);}
-            else {TextView icon=text(i==4?"⊞":"⚙",58,WHITE,false);icon.setGravity(Gravity.CENTER);tile.addView(icon,new FrameLayout.LayoutParams(-1,-1));}
+            if(i<5){Brand brand=new Brand(i);FrameLayout.LayoutParams bp=new FrameLayout.LayoutParams(px(178),px(92));bp.gravity=Gravity.CENTER;tile.addView(brand,bp);}
+            else {TextView icon=text(i==5?"⊞":"⚙",58,WHITE,false);icon.setGravity(Gravity.CENTER);tile.addView(icon,new FrameLayout.LayoutParams(-1,-1));}
             tile.setContentDescription(names[i]);
             TextView name=text(names[i],25,WHITE,true);name.setGravity(Gravity.CENTER);
             FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(px(w),px(40));lp.leftMargin=px(x);lp.topMargin=px(150);dock.addView(name,lp);
         }
-        for(int i=0;i<6;i++){
-            View v=controls.get(i);v.setNextFocusLeftId(controls.get(Math.max(0,i-1)).getId());v.setNextFocusRightId(controls.get(Math.min(5,i+1)).getId());v.setNextFocusDownId(v.getId());
+        for(int i=0;i<7;i++){
+            View v=controls.get(i);v.setNextFocusLeftId(controls.get(Math.max(0,i-1)).getId());v.setNextFocusRightId(controls.get(Math.min(6,i+1)).getId());v.setNextFocusDownId(v.getId());
         }
         dock.setVisibility(View.INVISIBLE);dock.setDescendantFocusability(android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS);
         dock.setTranslationY(px(250));dock.setAlpha(0);root.requestFocus();
@@ -163,7 +163,7 @@ public final class HomeActivity extends Activity {
         clock.animate().translationY(visible?-px(198):0).scaleX(visible?.79f:1).scaleY(visible?.79f:1).setDuration(240).start();
         forecast.animate().translationY(visible?-px(205):0).setDuration(240).start();
         appHint.animate().alpha(visible?0:1).setDuration(160).start();
-        if(visible)controls.get(Math.min(savedFocus,5)).requestFocus();else root.requestFocus();
+        if(visible)controls.get(Math.min(savedFocus,6)).requestFocus();else root.requestFocus();
     }
     private GradientDrawable surface(boolean focus,boolean pill) {
         GradientDrawable d=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
@@ -346,6 +346,7 @@ public final class HomeActivity extends Activity {
             if(brand==0){p.setColor(0xfffafafa);p.setTypeface(Typeface.create("sans-serif-light",Typeface.NORMAL));p.setTextSize(67);c.drawText("TV",150,89,p);}
             else if(brand==1){p.setColor(0xffe50914);p.setTextSize(47);p.setTypeface(Typeface.create("sans-serif-condensed",Typeface.BOLD));c.drawText("NETFLIX",150,84,p);}
             else if(brand==2){p.setColor(0xffff0033);c.drawRoundRect(35,36,121,96,17,17,p);p.setColor(Color.WHITE);Path play=new Path();play.moveTo(69,51);play.lineTo(69,81);play.lineTo(94,66);play.close();c.drawPath(play,p);p.setTextSize(36);p.setTypeface(Typeface.create("sans-serif",Typeface.BOLD));c.drawText("YouTube",208,80,p);}
+            else if(brand==4){p.setColor(0xfff4f6fa);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(4.5f);c.drawCircle(150,65,46,p);c.drawOval(128,19,172,111,p);c.drawLine(104,65,196,65,p);c.drawLine(112,41,188,41,p);c.drawLine(112,89,188,89,p);}
             else {p.setColor(0xfff4f6fa);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(3.5f);c.drawRoundRect(115,24,185,71,5,5,p);p.setStyle(Paint.Style.FILL);Path tri=new Path();tri.moveTo(150,57);tri.lineTo(130,82);tri.lineTo(170,82);tri.close();c.drawPath(tri,p);p.setTextSize(23);p.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));c.drawText("Mirroir",150,113,p);}
             raw.restore();
         }

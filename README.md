@@ -14,6 +14,7 @@ Premier prototype natif Android, installé sur le Player Pop Android 10 (API 29,
 - La date et les conditions actuelles à Valleiry (Haute-Savoie) apparaissent en haut à gauche. Une rangée affiche les sept prochains jours, avec conditions et températures minimales et maximales.
 - Bas ou OK affiche le bandeau d’applications. Haut ou Retour le masque. Gauche, Droite et OK permettent de choisir une application.
 - TV, Netflix et YouTube ouvrent les applications existantes, avec leurs comptes existants.
+- Navigateur ouvre un navigateur web généraliste pensé pour la télécommande : les flèches déplacent un pointeur (il accélère si la touche reste enfoncée), OK clique, pousser le pointeur contre un bord fait défiler la page, Retour revient à la page précédente. La barre du haut donne Précédent, Suivant, Recharger, Accueil, le champ d’adresse ou de recherche et « ☆ Favori ». La page d’accueil du navigateur liste les favoris et la dernière page visitée. Les touches Chaîne +/− font défiler d’un grand pas. Maison revient à Salon sans fermer la page en cours.
 - Toutes les apps affiche les applications TV en pages de dix, dont le Play Store.
 - Réglages donne accès aux paramètres Android, au Play Store, à AirPlay et au réseau.
 - Retour revient à l’accueil depuis les pages de Salon. Dans les applications tierces, Maison revient à Salon.
@@ -37,7 +38,9 @@ Pour un autre appareil, passer son adresse en argument (`./restore-free.command 
 
 ## Construction
 
-L’accueil utilise uniquement les vues Android du système, sans moteur web, bibliothèque d’interface ni boucle d’animation permanente. L’horloge et le décompte utilisent les événements système de changement d’heure et de date. La photo est redimensionnée et chargée une seule fois par activité.
+L’accueil (`HomeActivity`) utilise uniquement les vues Android du système, sans moteur web, bibliothèque d’interface ni boucle d’animation permanente. L’horloge et le décompte utilisent les événements système de changement d’heure et de date. La photo est redimensionnée et chargée une seule fois par activité.
+
+Le navigateur (`BrowserActivity`) est une activité séparée, dans sa propre tâche, qui s’appuie sur le WebView système du Player. Il ne contient aucun code propre à un site. Les clics sont de vrais événements tactiles envoyés à la position du pointeur ; le défilement et le survol sont des événements de souris. Les favoris et la dernière page sont conservés localement. Les liens vers d’autres schémas que http et https sont ignorés. Son comportement sur le Player reste à valider sur l’appareil.
 
 ## Météo
 
